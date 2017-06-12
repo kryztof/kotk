@@ -1,0 +1,145 @@
+#!/bin/bash
+ 
+display_usage() { 
+  echo -e "\nUsage:\n $0 site\n" 
+  echo -e "\nUsage:\n $0 site results.txt\n" 
+} 
+
+# if less than two arguments supplied, display usage 
+if [  $# -le 1 ] 
+then 
+  display_usage
+  exit 1
+fi 
+               
+# check whether user had supplied -h or --help . If yes display usage 
+if [[ ( $# == "--help") ||  $# == "-h" ]] 
+then 
+  display_usage
+  exit 0
+fi
+
+SITE=$1
+
+if [ $# -eq 1 ]
+then
+        RESULT=$(date +%Y_%m_%d_%Hh%Mm%Ss_result.txt)
+else
+        RESULT=$2
+fi
+
+echo $RESULT
+
+
+function get_all_data {
+
+  COUNTER=0
+  while [ $COUNTER -lt 40 ]; do
+    echo "getting page $COUNTER"
+    wget -o rommel.txt -O page$COUNTER.txt "$SITE/teams?search=&page=$COUNTER"
+    let COUNTER=COUNTER+1
+  done
+
+  COUNTER=0
+  while [ $COUNTER -lt 40 ] ; do
+    #echo "---------------------"
+    TEAMS=$(cat page$COUNTER.txt | grep "href=\"/team/" | cut -d\" -f 4 )
+    SUBTEAMS=$(cat page$COUNTER.txt | grep "subteams" | cut -d\> -f 2 | cut -d\< -f 1)
+    #echo $TEAMS
+    #echo $SUBTEAMS
+    let COUNTER=COUNTER+1
+
+    fund=()
+    TELLER=0
+    for team in $TEAMS;
+    do
+      teamke=$(echo $team | cut -d/ -f 3)
+      #echo "TEAMKE $teamke"
+      wget -o rommel.txt -O team_$teamke "$SITE/$team"
+      fund[$TELLER]=$(cat team_$teamke | grep funds-raised | cut -d\> -f 3 | cut -d\  -f 1 | sed 's/\.//')
+      let TELLER=TELLER+1
+    done
+
+    teams=($TEAMS)
+    subteams=($SUBTEAMS)
+    NRTEAMS=$(echo $TEAMS | wc -w)
+    let NRTEAMS=NRTEAMS-1
+    if [ $NRTEAMS -gt 0 ]
+    then
+      for i in $(seq 0 $NRTEAMS);
+      do
+        #echo ${teams[$i]} ${subteams[$i]}
+        echo -e "${subteams[$i]}\t${fund[$i]}\t${teams[$i]}"
+        echo -e "${subteams[$i]}\t${fund[$i]}\t${teams[$i]}" >> $RESULT
+      done
+    fi 
+  done
+
+  #remove empty lines
+  cat $RESULT | sed '/^[[:space:]]*$/d' > DELME
+  cat DELME | sort -k1 -k2 -n > $RESULT
+}
+
+
+#some statictics
+function print_stats {
+  #remove empty lines
+  cat $RESULT | sed '/^[[:space:]]*$/d' > DELME
+  TOTALTEAMS=$(cat DELME | wc -l)
+  TOTALEURO=$(cat DELME | cut -f 2 | paste -sd+ | bc )
+  TOTALSUBTEAMS=$(cat DELME | cut -f 1 | paste -sd+ | bc)
+  TOTALEXPECTED=$(echo $TOTALSUBTEAMS*5000 | bc)
+  #TOTALMISSING=$(echo $TOTALEXPECTED-$TOTALEURO | bc)
+  TEAMSNOTFULLYFUNDED=""
+  TEAMSNOTFULLYFUNDEDCOUNT=0
+  TEAMSNOTFUNDEDFOR1TEAM=""
+  TEAMSNOTFUNDEDFOR1TEAMCOUNT=0
+
+  TOTALMISSING=0
+  while read -r line
+  do
+    #echo -e "$line"
+    SUBTEAMS=$(echo "$line" | cut -f 1)
+    FUND=$(echo "$line" | cut -f 2)
+    TEAM=$(echo "$line" | cut -f 3)
+    MULTI=$(echo "$SUBTEAMS*5000" | bc)
+    #echo "-------- $MULTI ==  $FUND -- $TEAM"
+    if [ $MULTI -gt $FUND ]
+    then
+      #echo -e "--> subt $SUBTEAMS fund $FUND TOTAL $MULTI TEAM $TEAM"
+      TEAMSNOTFULLYFUNDED+=" $TEAM"
+      let TEAMSNOTFULLYFUNDEDCOUNT=TEAMSNOTFULLYFUNDEDCOUNT+1
+      MISSING=$(echo "$MULTI-$FUND" | bc)
+      TOTALMISSING=$(echo "$TOTALMISSING+$MISSING" | bc)
+    fi
+    if [ 5000 -gt $FUND ]
+    then
+      TEAMSNOTFUNDEDFOR1TEAM+=" $TEAM"
+      let TEAMSNOTFUNDEDFOR1TEAMCOUNT=TEAMSNOTFUNDEDFOR1TEAMCOUNT+1
+    fi
+  done < DELME
+  let TEAMSNOTFULLYFUNDEDCOUNT=TEAMSNOTFULLYFUNDEDCOUNT-$TEAMSNOTFUNDEDFOR1TEAMCOUNT
+
+  echo -e "--------------------------------------------"
+  echo -e "\tingezamled: $TOTALEURO euro"
+  echo -e "\taantal teams: $TOTALTEAMS"
+  echo -e "\taantal subteams: $TOTALSUBTEAMS"
+  echo -e "\tverwacht ingezameld geld: $TOTALEXPECTED euro"
+  echo -e "\tnog te ontvangen: $TOTALMISSING euro"
+  echo -e "\taantal teams die niet volledig kunnen vertrekken: $TEAMSNOTFULLYFUNDEDCOUNT"
+  echo -e "\taantal teams die niet kunnen vertrekken: $TEAMSNOTFUNDEDFOR1TEAMCOUNT"
+#echo -e "\tteams die niet met 1 team kunnen vertrekken: $TEAMSNOTFUNDEDFOR1TEAM"
+#echo -e "\tteams die niet volledig kunnen vertrekken: $TEAMSNOTFULLYFUNDED"
+}
+
+mkdir -p archive
+rm -f archive/*
+
+if [ $# -eq 1 ]
+then
+        get_all_data
+fi
+
+print_stats
+mv -f team* page* DELME rommel.txt archive/ 2> /dev/null
+
