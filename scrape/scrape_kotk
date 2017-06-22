@@ -1,12 +1,13 @@
 #!/bin/bash
  
 display_usage() { 
-  echo -e "\nUsage:\n $0 site\n" 
-  echo -e "\nUsage:\n $0 site results.txt\n" 
+  echo -e "\nUsage:   $0 site\n" 
+  echo -e "           $0 site results.txt\n" 
 } 
 
+echo "gg $#"
 # if less than two arguments supplied, display usage 
-if [  $# -le 1 ] 
+if [  $# -lt 1 ] 
 then 
   display_usage
   exit 1
